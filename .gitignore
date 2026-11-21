@@ -8,18 +8,14 @@ env/
 __pycache__/
 *.pyc
 *.pyo
-
 # Environment Variables
 .env
 .env.*
-
 # Jupyter Notebook
 .ipynb_checkpoints/
-
 # IDE Files
 .vscode/
 .idea/
-
 # OS Files
 .DS_Store
 Thumbs.db
