@@ -1,0 +1,22 @@
+{
+  "Best_ANN_Hyperparameters": {
+    "units_1": 128,
+    "units_2": 64,
+    "dropout_rate": 0.25,
+    "lr": 0.0005
+  },
+  "Random_Forest_Baseline": {
+    "accuracy": 0.8969,
+    "precision": 0.7094,
+    "recall": 0.908,
+    "f1_score": 0.7965,
+    "auc_roc": 0.9733
+  },
+  "Artificial_Neural_Network": {
+    "accuracy": 0.885,
+    "precision": 0.6834,
+    "recall": 0.8993,
+    "f1_score": 0.7766,
+    "auc_roc": 0.9673
+  }
+}
