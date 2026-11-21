@@ -89,40 +89,13 @@ PRESETS = {
     }
 }
 
-# Sidebar: Service Configuration, Architecture Controls, & Presets
+# Backend client configuration (Zero direct ML model inference in Streamlit)
+api_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+mock_mode = False
+client = SmartLoanAPIClient(base_url=api_url, mock_mode=mock_mode)
+
+# Sidebar: Presets & Policy Threshold Controls
 with st.sidebar:
-    st.header("Underwriting Controls")
-
-    # Provisional Mock Mode Toggle
-    mock_mode = st.toggle(
-        "Provisional Mock Mode",
-        value=False,
-        help="Simulate API Contract v1.0.0 responses locally without calling the live FastAPI server."
-    )
-
-    api_url = st.text_input(
-        "FastAPI Backend URL",
-        value="http://127.0.0.1:8000",
-        disabled=mock_mode,
-        help="Target base URL for the FastAPI inference backend."
-    )
-
-    # Initialize API Client (Zero direct ML model inference in Streamlit)
-    client = SmartLoanAPIClient(base_url=api_url, mock_mode=mock_mode)
-
-    # Backend Connectivity & Health Check
-    health = client.health_check()
-    if mock_mode:
-        st.info("⚡ **Provisional Mock Mode Active**\n(Contract v1.0.0 Local Mock)")
-    elif health.get("status") == "healthy" and health.get("model_loaded"):
-        st.success("🟢 **Backend Connected (v1.0.0)**\nModel ready for inference")
-    elif health.get("status") == "healthy":
-        st.warning("🟡 **Backend Online (Model Loading)**")
-    else:
-        st.error(f"🔴 **Backend Unreachable**\n{health.get('error', 'Check server at port 8000')}")
-
-    st.divider()
-
     # Preset Selection
     preset_choice = st.selectbox("Applicant Preset", list(PRESETS.keys()), index=0)
     preset = PRESETS[preset_choice]
@@ -155,7 +128,7 @@ with st.sidebar:
 st.markdown("""
 <div class="hero-banner">
     <p class="hero-title">SmartLoan AI — Credit Underwriting Engine</p>
-    <p class="hero-sub">Production 3-Tier Credit Decisioning: Streamlit Frontend &rarr; FastAPI Backend &rarr; Keras Neural Network</p>
+    <p class="hero-sub">Production 3-Tier Credit Decisioning: Streamlit Frontend → FastAPI Backend → Keras Neural Network</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -178,12 +151,12 @@ with tab1:
 
         with col_a:
             person_income = st.number_input(
-    "Gross Annual Income (₹)",
-    min_value=0.0,
-    max_value=10_000_000.0,
-    value=25000.0,
-    step=1000.0,
-)
+                "Gross Annual Income (₹)",
+                min_value=0.0,
+                max_value=10_000_000.0,
+                value=float(preset["person_income"]) if preset else 25000.0,
+                step=1000.0,
+            )
             person_emp_exp = st.number_input(
                 "Employment Experience (Years)",
                 min_value=0.0,
@@ -197,12 +170,12 @@ with tab1:
 
         with col_b:
             loan_amnt = st.number_input(
-    "Requested Loan Principal (₹)",
-    min_value=0.0,
-    max_value=35_000.0,
-    value=9000.0,
-    step=500.0,
-)
+                "Requested Loan Principal (₹)",
+                min_value=0.0,
+                max_value=35_000.0,
+                value=float(preset["loan_amnt"]) if preset else 9000.0,
+                step=500.0,
+            )
             intent_options = ["EDUCATION", "DEBTCONSOLIDATION", "HOMEIMPROVEMENT", "MEDICAL", "PERSONAL", "VENTURE"]
             intent_idx = intent_options.index(preset["loan_intent"]) if preset and preset["loan_intent"] in intent_options else 0
             loan_intent = st.selectbox("Loan Purpose / Intent", intent_options, index=intent_idx)
@@ -293,7 +266,7 @@ with tab1:
                     derived = result.get("derived_features", {})
                     st.write(f"• **Loan-to-Income:** `{derived.get('loan_percent_income', 0.0) * 100:.1f}%`")
                     st.write(f"• **Debt-to-Income:** `{derived.get('calc_debt_to_income', 0.0):.4f}`")
-                    st.write(f"• **Est. Annual Interest:** `${derived.get('estimated_annual_interest', 0.0):,.2f}`")
+                    st.write(f"• **Est. Annual Interest:** `₹{derived.get('estimated_annual_interest', 0.0):,.2f}`")
 
                 with r_contract:
                     st.markdown("**Contract & Governance Specs**")
@@ -313,7 +286,7 @@ with tab1:
 
             except Exception as e:
                 st.error(f"Underwriting API error: {e}")
-                st.info("💡 Tip: If FastAPI is not running on port 8000, toggle **Provisional Mock Mode** in the sidebar to simulate decisions.")
+                st.info("💡 Tip: Make sure the FastAPI server is running on port 8000 (`uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload`).")
 
 
 # ==============================================================================
