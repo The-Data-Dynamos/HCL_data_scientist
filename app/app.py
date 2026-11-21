@@ -6,7 +6,7 @@ from services.api_client import SmartLoanAPIClient
 
 # Configure page layout and visual identity
 st.set_page_config(
-    page_title="SmartLoan  | Credit Underwriting Engine",
+    page_title="SmartLoan | Credit Underwriting Engine",
     page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -127,7 +127,7 @@ with st.sidebar:
 # Hero Header Banner
 st.markdown("""
 <div class="hero-banner">
-    <p class="hero-title">SmartLoan AI — Credit Underwriting Engine</p>
+    <p class="hero-title">SmartLoan — Credit Underwriting Engine</p>
     <p class="hero-sub">Production 3-Tier Credit Decisioning: Streamlit Frontend → FastAPI Backend → Keras Neural Network</p>
 </div>
 """, unsafe_allow_html=True)
