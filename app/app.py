@@ -6,7 +6,7 @@ from services.api_client import SmartLoanAPIClient
 
 # Configure page layout and visual identity
 st.set_page_config(
-    page_title="SmartLoan AI | Credit Underwriting Engine",
+    page_title="SmartLoan  | Credit Underwriting Engine",
     page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded"
