@@ -1,0 +1,54 @@
+{
+  "model_name": "smartloan_ann_classifier",
+  "model_version": "1.0.0",
+  "trained_at_utc": "2026-11-21T08:23:53.695037+00:00",
+  "dataset_rows_cleaned": 44993,
+  "features_used": {
+    "categorical": [
+      "person_gender",
+      "person_education",
+      "person_home_ownership",
+      "loan_intent",
+      "previous_loan_defaults_on_file"
+    ],
+    "numeric_raw": [
+      "person_age",
+      "person_income",
+      "person_emp_exp",
+      "loan_amnt",
+      "loan_int_rate",
+      "loan_percent_income",
+      "cb_person_cred_hist_length",
+      "credit_score"
+    ],
+    "numeric_derived": [
+      "calc_debt_to_income",
+      "estimated_annual_interest"
+    ]
+  },
+  "class_distribution": {
+    "rejected_0": 34993,
+    "approved_1": 10000
+  },
+  "class_label_mapping": {
+    "0": "REJECTED",
+    "1": "APPROVED"
+  },
+  "default_threshold": 0.5,
+  "supported_loan_categories": [
+    "DEBTCONSOLIDATION",
+    "EDUCATION",
+    "HOMEIMPROVEMENT",
+    "MEDICAL",
+    "PERSONAL",
+    "VENTURE"
+  ],
+  "environment_versions": {
+    "python": "3.12.0",
+    "tensorflow": "2.21.0",
+    "scikit_learn": "1.9.1",
+    "pandas": "3.1.1",
+    "numpy": "2.5.5",
+    "joblib": "1.6.0"
+  }
+}

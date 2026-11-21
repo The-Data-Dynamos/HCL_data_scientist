@@ -1,11 +1,10 @@
 import os
-import json
-import joblib
-import requests
 import pandas as pd
 import streamlit as st
-import tensorflow as tf
 
+from services.api_client import SmartLoanAPIClient
+
+# Configure page layout and visual identity
 st.set_page_config(
     page_title="SmartLoan AI | Credit Underwriting Engine",
     page_icon="🏦",
@@ -13,22 +12,22 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for dark-mode polish, header spacing, and executive cards
+# Dark-mode styling, spacing, and card layouts
 st.markdown("""
 <style>
     .block-container {
-        padding-top: 2.2rem;
+        padding-top: 1.8rem;
         padding-bottom: 2rem;
     }
     .hero-banner {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
         border: 1px solid #334155;
         border-radius: 12px;
-        padding: 1.4rem 1.8rem;
+        padding: 1.2rem 1.6rem;
         margin-bottom: 1.2rem;
     }
     .hero-title {
-        font-size: 1.9rem;
+        font-size: 1.85rem;
         font-weight: 700;
         color: #f8fafc;
         margin: 0;
@@ -36,293 +35,411 @@ st.markdown("""
     .hero-sub {
         font-size: 0.95rem;
         color: #94a3b8;
-        margin-top: 0.35rem;
+        margin-top: 0.3rem;
         margin-bottom: 0;
     }
-    .decision-card {
-        border-radius: 10px;
-        padding: 1.1rem 1.3rem;
+    .metric-badge {
+        display: inline-block;
+        padding: 0.25rem 0.6rem;
+        border-radius: 6px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        background: #1e293b;
+        color: #38bdf8;
         border: 1px solid #334155;
-        background-color: #0f172a;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Human-readable labels & constraints mapped to exact dataset schema columns
-FIELD_META = {
-    "person_age": {"label": "Applicant Age (Years)", "min": 18, "max": 100, "step": 1, "is_int": True},
-    "person_gender": {"label": "Gender (Audit Only)"},
-    "person_education": {"label": "Highest Education Level"},
-    "person_income": {"label": "Annual Gross Income ($)", "min": 1000.0, "max": 5000000.0, "step": 1000.0, "is_int": False},
-    "person_emp_exp": {"label": "Employment Experience (Years)", "min": 0, "max": 80, "step": 1, "is_int": True},
-    "person_home_ownership": {"label": "Home Ownership Status"},
-    "loan_amnt": {"label": "Requested Loan Principal ($)", "min": 500.0, "max": 500000.0, "step": 500.0, "is_int": False},
-    "loan_intent": {"label": "Loan Purpose / Intent"},
-    "loan_int_rate": {"label": "Proposed Interest Rate (% APR)", "min": 1.0, "max": 40.0, "step": 0.1, "is_int": False},
-    "loan_percent_income": {"label": "Loan-to-Income Ratio", "min": 0.0, "max": 5.0, "step": 0.01, "is_int": False},
-    "cb_person_cred_hist_length": {"label": "Credit Bureau History (Years)", "min": 0.0, "max": 60.0, "step": 1.0, "is_int": False},
-    "credit_score": {"label": "Credit Bureau Score (300–850)", "min": 300, "max": 850, "step": 5, "is_int": True},
-    "previous_loan_defaults_on_file": {"label": "Prior Loan Defaults on File"}
-}
-
+# Applicant Presets for demo and rapid evaluation
 PRESETS = {
-    "Custom / Median Profile": None,
+    "Custom / Fresh Form": None,
     "Prime Applicant (Low Risk)": {
-        "person_age": 34, "person_gender": "female", "person_education": "Master",
-        "person_income": 115000.0, "person_emp_exp": 10, "person_home_ownership": "MORTGAGE",
-        "loan_amnt": 12000.0, "loan_intent": "EDUCATION", "loan_int_rate": 7.5,
-        "cb_person_cred_hist_length": 9.0, "credit_score": 780, "previous_loan_defaults_on_file": "No"
+        "person_income": 115000.0,
+        "person_emp_exp": 10.0,
+        "person_home_ownership": "MORTGAGE",
+        "loan_amnt": 12000.0,
+        "loan_intent": "EDUCATION",
+        "loan_int_rate": 7.5,
+        "cb_person_cred_hist_length": 9.0,
+        "credit_score": 780,
+        "previous_loan_defaults_on_file": "No"
     },
     "High-Risk Applicant (Prior Default)": {
-        "person_age": 22, "person_gender": "male", "person_education": "High School",
-        "person_income": 24000.0, "person_emp_exp": 1, "person_home_ownership": "RENT",
-        "loan_amnt": 15000.0, "loan_intent": "PERSONAL", "loan_int_rate": 18.5,
-        "cb_person_cred_hist_length": 2.0, "credit_score": 520, "previous_loan_defaults_on_file": "Yes"
+        "person_income": 24000.0,
+        "person_emp_exp": 1.0,
+        "person_home_ownership": "RENT",
+        "loan_amnt": 15000.0,
+        "loan_intent": "PERSONAL",
+        "loan_int_rate": 18.5,
+        "cb_person_cred_hist_length": 2.0,
+        "credit_score": 520,
+        "previous_loan_defaults_on_file": "Yes"
     },
     "Borderline Applicant (Policy Sensitive)": {
-        "person_age": 27, "person_gender": "female", "person_education": "Bachelor",
-        "person_income": 52000.0, "person_emp_exp": 4, "person_home_ownership": "RENT",
-        "loan_amnt": 14000.0, "loan_intent": "DEBTCONSOLIDATION", "loan_int_rate": 12.8,
-        "cb_person_cred_hist_length": 4.0, "credit_score": 645, "previous_loan_defaults_on_file": "No"
+        "person_income": 52000.0,
+        "person_emp_exp": 4.0,
+        "person_home_ownership": "RENT",
+        "loan_amnt": 14000.0,
+        "loan_intent": "DEBTCONSOLIDATION",
+        "loan_int_rate": 12.8,
+        "cb_person_cred_hist_length": 4.0,
+        "credit_score": 645,
+        "previous_loan_defaults_on_file": "No"
     }
 }
 
-@st.cache_resource
-def load_artifacts():
-    required_files = [
-        "models/preprocessor.joblib",
-        "models/rf_baseline.joblib",
-        "models/loan_ann_model.h5",
-        "models/feature_schema.json",
-        "reports/evaluation_metrics.json"
-    ]
-    missing = [f for f in required_files if not os.path.exists(f)]
-    if missing:
-        st.error(f"Missing model artifacts: {missing}. Run `python src/train.py` first.")
-        st.stop()
-
-    preprocessor = joblib.load("models/preprocessor.joblib")
-    rf_model = joblib.load("models/rf_baseline.joblib")
-    ann_model = tf.keras.models.load_model("models/loan_ann_model.h5")
-
-    with open("models/feature_schema.json", "r") as f:
-        schema = json.load(f)
-    with open("reports/evaluation_metrics.json", "r") as f:
-        metrics = json.load(f)
-
-    return preprocessor, rf_model, ann_model, schema, metrics
-
-
-preprocessor, rf_model, ann_model, schema, metrics = load_artifacts()
-
-# Sidebar: Demo Controls & Policy Threshold
+# Sidebar: Service Configuration, Architecture Controls, & Presets
 with st.sidebar:
     st.header("Underwriting Controls")
-    preset_choice = st.selectbox("Quick Demo Applicant Preset", list(PRESETS.keys()))
-    preset_values = PRESETS[preset_choice]
+
+    # Provisional Mock Mode Toggle
+    mock_mode = st.toggle(
+        "Provisional Mock Mode",
+        value=False,
+        help="Simulate API Contract v1.0.0 responses locally without calling the live FastAPI server."
+    )
+
+    api_url = st.text_input(
+        "FastAPI Backend URL",
+        value="http://127.0.0.1:8000",
+        disabled=mock_mode,
+        help="Target base URL for the FastAPI inference backend."
+    )
+
+    # Initialize API Client (Zero direct ML model inference in Streamlit)
+    client = SmartLoanAPIClient(base_url=api_url, mock_mode=mock_mode)
+
+    # Backend Connectivity & Health Check
+    health = client.health_check()
+    if mock_mode:
+        st.info("⚡ **Provisional Mock Mode Active**\n(Contract v1.0.0 Local Mock)")
+    elif health.get("status") == "healthy" and health.get("model_loaded"):
+        st.success("🟢 **Backend Connected (v1.0.0)**\nModel ready for inference")
+    elif health.get("status") == "healthy":
+        st.warning("🟡 **Backend Online (Model Loading)**")
+    else:
+        st.error(f"🔴 **Backend Unreachable**\n{health.get('error', 'Check server at port 8000')}")
 
     st.divider()
+
+    # Preset Selection
+    preset_choice = st.selectbox("Applicant Preset", list(PRESETS.keys()), index=0)
+    preset = PRESETS[preset_choice]
+
+    st.divider()
+
+    # Policy Cutoff Threshold Slider
     threshold = st.slider(
-        "Approval Probability Cutoff",
+        "Approval Cutoff Threshold",
         min_value=0.10,
         max_value=0.90,
         value=0.50,
         step=0.05,
-        help="Raise cutoff to tighten credit risk; lower cutoff to expand loan approvals."
+        help="Raise cutoff to tighten underwriting policy; lower cutoff to expand credit issuance."
     )
-    st.caption(f"Current Risk Stance: **{'Conservative' if threshold > 0.55 else 'Balanced' if threshold >= 0.45 else 'Growth / Aggressive'}**")
+    stance = "Conservative (Low Risk)" if threshold > 0.55 else "Balanced (Standard)" if threshold >= 0.45 else "Growth (High Approval)"
+    st.caption(f"Risk Policy Stance: **{stance}**")
 
     st.divider()
-    inference_mode = st.radio(
-        "Inference Engine",
-        ["Local Artifacts (Direct)", "FastAPI Endpoint (REST)"],
-        index=0
+    st.markdown("**API Contract v1.0.0 Architecture**")
+    st.caption(
+        "• **Frontend:** Streamlit 3-Tier Client\n"
+        "• **Client Adapter:** `services.api_client`\n"
+        "• **Backend:** FastAPI REST Engine (`:8000`)\n"
+        "• **Auditing:** SQLite Non-Sensitive DB (`smartloan.db`)\n"
+        "• **Inference:** Tuned Keras ANN"
     )
-    api_url = st.text_input("FastAPI URL", value="http://127.0.0.1:8000", disabled=(inference_mode == "Local Artifacts (Direct)"))
 
-    st.divider()
-    st.markdown("**System Specs**")
-    st.caption("• Dataset: 45,000 Credit Records\n• Split: 70% Train / 15% Val / 15% Test\n• Primary: Keras ANN (Adam + Dropout)\n• Baseline: Balanced Random Forest")
-
-# Header Banner
+# Hero Header Banner
 st.markdown("""
 <div class="hero-banner">
-    <p class="hero-title">SmartLoan AI — Credit Underwriting & Risk Classification</p>
-    <p class="hero-sub">Neural Network Decision Engine (ANN) vs. Random Forest Baseline | Real-Time Policy Simulation & Diagnostics</p>
+    <p class="hero-title">SmartLoan AI — Credit Underwriting Engine</p>
+    <p class="hero-sub">Production 3-Tier Credit Decisioning: Streamlit Frontend &rarr; FastAPI Backend &rarr; Keras Neural Network</p>
 </div>
 """, unsafe_allow_html=True)
 
-tab1, tab2 = st.tabs(["Live Loan Underwriting Simulator", "Model Benchmarks & Diagnostics"])
+# 3 Production Tabs per Contract v1.0.0 Specification
+tab1, tab2, tab3 = st.tabs([
+    "1. Loan Assessment",
+    "2. Model Performance",
+    "3. Assessment History"
+])
 
+# ==============================================================================
+# TAB 1: LOAN ASSESSMENT (9 Required Frontend Fields)
+# ==============================================================================
 with tab1:
-    input_data = {}
-    cat_cols = schema.get("cat_cols", [])
-    raw_num_cols = schema.get("raw_num_cols", [])
+    st.subheader("Applicant Underwriting Assessment Form")
+    st.caption("All 9 required fields strictly validated against Contract v1.0.0.")
 
-    st.subheader("1. Applicant Demographics & Credit Profile")
-    c_demo = st.columns(3)
-    idx = 0
-    for col_name in cat_cols:
-        meta = FIELD_META.get(col_name, {"label": col_name})
-        options = schema["cat_values"][col_name]
-        default_idx = 0
-        if preset_values and col_name in preset_values and preset_values[col_name] in options:
-            default_idx = options.index(preset_values[col_name])
-        with c_demo[idx % 3]:
-            input_data[col_name] = st.selectbox(meta["label"], options, index=default_idx, key=f"in_{col_name}")
-        idx += 1
+    with st.form("loan_assessment_form"):
+        col_a, col_b, col_c = st.columns(3)
 
-    st.subheader("2. Income, Loan Terms & Credit Bureau Metrics")
-    c_num = st.columns(3)
-    num_idx = 0
-    for col_name in raw_num_cols:
-        # Auto-derive loan_percent_income dynamically below so user inputs stay consistent
-        if col_name == "loan_percent_income":
-            continue
-        meta = FIELD_META.get(col_name, {"label": col_name, "is_int": False})
-        raw_default = preset_values[col_name] if (preset_values and col_name in preset_values) else schema["num_medians"][col_name]
+        with col_a:
+            person_income = st.number_input(
+    "Gross Annual Income (₹)",
+    min_value=0.0,
+    max_value=10_000_000.0,
+    value=25000.0,
+    step=1000.0,
+)
+            person_emp_exp = st.number_input(
+                "Employment Experience (Years)",
+                min_value=0.0,
+                max_value=60.0,
+                value=float(preset["person_emp_exp"]) if preset else 5.0,
+                step=1.0
+            )
+            home_options = ["MORTGAGE", "RENT", "OWN", "OTHER"]
+            home_idx = home_options.index(preset["person_home_ownership"]) if preset and preset["person_home_ownership"] in home_options else 0
+            person_home_ownership = st.selectbox("Home Ownership Status", home_options, index=home_idx)
 
-        with c_num[num_idx % 3]:
-            if meta.get("is_int", False):
-                input_data[col_name] = st.number_input(
-                    meta["label"],
-                    min_value=int(meta.get("min", 0)),
-                    max_value=int(meta.get("max", 10000000)),
-                    value=int(round(float(raw_default))),
-                    step=int(meta.get("step", 1)),
-                    key=f"in_{col_name}"
-                )
-            else:
-                input_data[col_name] = st.number_input(
-                    meta["label"],
-                    min_value=float(meta.get("min", 0.0)),
-                    max_value=float(meta.get("max", 10000000.0)),
-                    value=float(raw_default),
-                    step=float(meta.get("step", 1.0)),
-                    key=f"in_{col_name}"
-                )
-        num_idx += 1
+        with col_b:
+            loan_amnt = st.number_input(
+    "Requested Loan Principal (₹)",
+    min_value=0.0,
+    max_value=35_000.0,
+    value=9000.0,
+    step=500.0,
+)
+            intent_options = ["EDUCATION", "DEBTCONSOLIDATION", "HOMEIMPROVEMENT", "MEDICAL", "PERSONAL", "VENTURE"]
+            intent_idx = intent_options.index(preset["loan_intent"]) if preset and preset["loan_intent"] in intent_options else 0
+            loan_intent = st.selectbox("Loan Purpose / Intent", intent_options, index=intent_idx)
 
-    # Compute derived financial ratios live for display & model input
-    income_val = max(float(input_data.get("person_income", 1.0)), 1.0)
-    loan_val = float(input_data.get("loan_amnt", 0.0))
-    rate_val = float(input_data.get("loan_int_rate", 0.0))
+            loan_int_rate = st.number_input(
+                "Proposed Interest Rate (% APR)",
+                min_value=1.0,
+                max_value=40.0,
+                value=float(preset["loan_int_rate"]) if preset else 10.5,
+                step=0.1
+            )
 
-    dti_ratio = loan_val / income_val
-    annual_interest = loan_val * (rate_val / 100.0)
-    if "loan_percent_income" in raw_num_cols:
-        input_data["loan_percent_income"] = round(dti_ratio, 4)
+        with col_c:
+            cb_person_cred_hist_length = st.number_input(
+                "Credit Bureau History (Years)",
+                min_value=0.0,
+                max_value=60.0,
+                value=float(preset["cb_person_cred_hist_length"]) if preset else 5.0,
+                step=1.0
+            )
+            credit_score = st.number_input(
+                "Credit Bureau Score (300–850)",
+                min_value=300,
+                max_value=850,
+                value=int(preset["credit_score"]) if preset else 680,
+                step=5
+            )
+            default_options = ["No", "Yes"]
+            default_idx = default_options.index(preset["previous_loan_defaults_on_file"]) if preset and preset["previous_loan_defaults_on_file"] in default_options else 0
+            previous_loan_defaults_on_file = st.selectbox("Prior Loan Defaults on File", default_options, index=default_idx)
 
-    # Live Financial Summary Strip
-    st.markdown("#### Live Engineered Financial Indicators")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Debt-to-Income (DTI) Ratio", f"{dti_ratio * 100:.2f}%", delta="High Burden" if dti_ratio > 0.35 else "Healthy", delta_color="inverse")
-    m2.metric("Estimated Annual Interest", f"${annual_interest:,.2f}")
-    m3.metric("Active Approval Cutoff", f"{threshold * 100:.0f}%")
+        # Real-time UI indicator preview
+        dti_preview = round(loan_amnt / max(person_income, 1.0), 2)
+        annual_interest_preview = round(loan_amnt * (loan_int_rate / 100.0), 2)
 
-    st.divider()
-    if st.button("Run Underwriting Evaluation", type="primary", use_container_width=True):
-        df_in = pd.DataFrame([input_data])
+        st.markdown("##### Live Form Indicators")
+        i1, i2, i3 = st.columns(3)
+        i1.metric("Calculated Loan-to-Income", f"{dti_preview * 100:.1f}%", delta="High Burden" if dti_preview > 0.40 else "Healthy", delta_color="inverse")
+        i2.metric("Estimated Annual Interest", f"₹{annual_interest_preview:,.2f}")
+        i3.metric("Decision Cutoff Applied", f"{threshold * 100:.0f}%")
 
-        # Replicate domain feature engineering from src/train.py
-        if "loan_amnt" in df_in.columns and "person_income" in df_in.columns:
-            df_in["calc_debt_to_income"] = df_in["loan_amnt"] / (df_in["person_income"] + 1.0)
-        if "loan_amnt" in df_in.columns and "loan_int_rate" in df_in.columns:
-            df_in["estimated_annual_interest"] = df_in["loan_amnt"] * (df_in["loan_int_rate"] / 100.0)
+        submit_btn = st.form_submit_button("Run Underwriting Assessment", type="primary", use_container_width=True)
 
-        ann_prob, rf_prob = None, None
+    if submit_btn:
+        payload = {
+            "person_income": float(person_income),
+            "person_emp_exp": float(person_emp_exp),
+            "person_home_ownership": person_home_ownership,
+            "loan_amnt": float(loan_amnt),
+            "loan_intent": loan_intent,
+            "loan_int_rate": float(loan_int_rate),
+            "cb_person_cred_hist_length": float(cb_person_cred_hist_length),
+            "credit_score": int(credit_score),
+            "previous_loan_defaults_on_file": previous_loan_defaults_on_file,
+            "decision_threshold": float(threshold)
+        }
 
-        if inference_mode == "FastAPI Endpoint (REST)":
+        with st.spinner("Submitting application to Underwriting API..."):
             try:
-                api_payload = {k: v for k, v in input_data.items() if k not in ["person_gender", "loan_percent_income"]}
-                api_payload["decision_threshold"] = float(threshold)
-                resp = requests.post(f"{api_url}/api/v1/predict", json=api_payload, timeout=5)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    ann_prob = float(data["approval_probability"])
-                    rf_prob = float(data["baseline_probability"])
+                # Zero direct ML inference in Streamlit: delegate solely to FastAPI client
+                result = client.predict_loan(payload)
+
+                st.divider()
+                st.subheader("Official Underwriting Decision")
+
+                # Decision Header
+                is_approved = result["predicted_class"] == 1
+                if is_approved:
+                    st.success(f"### ✅ LOAN APPROVED — {result['predicted_label']}")
                 else:
-                    st.error(f"FastAPI returned HTTP {resp.status_code}: {resp.text}")
+                    st.error(f"### ❌ LOAN REJECTED — {result['predicted_label']}")
+
+                # Primary Result Columns
+                r_prob, r_metrics, r_contract = st.columns([1.2, 1.2, 1.2])
+
+                with r_prob:
+                    prob = result["probability_approved"]
+                    delta_pct = (prob - threshold) * 100
+                    st.metric(
+                        "Approval Probability",
+                        f"{prob * 100:.2f}%",
+                        delta=f"{delta_pct:+.2f}% vs Threshold ({threshold * 100:.0f}%)"
+                    )
+                    st.progress(min(max(prob, 0.0), 1.0))
+
+                with r_metrics:
+                    st.markdown("**Engineered Ratios**")
+                    derived = result.get("derived_features", {})
+                    st.write(f"• **Loan-to-Income:** `{derived.get('loan_percent_income', 0.0) * 100:.1f}%`")
+                    st.write(f"• **Debt-to-Income:** `{derived.get('calc_debt_to_income', 0.0):.4f}`")
+                    st.write(f"• **Est. Annual Interest:** `${derived.get('estimated_annual_interest', 0.0):,.2f}`")
+
+                with r_contract:
+                    st.markdown("**Contract & Governance Specs**")
+                    st.write(f"• **Model:** `{result.get('model_name')}`")
+                    st.write(f"• **Version:** `{result.get('model_version')}` (v{result.get('contract_version')})")
+                    st.write(f"• **Type:** `{result.get('model_type')}`")
+                    st.write(f"• **Intent:** `{result.get('loan_intent')}`")
+
+                # Warnings & Policy Audit Flags
+                warnings = result.get("warnings", [])
+                st.markdown("#### Automated Risk & Policy Flags")
+                if warnings:
+                    for w in warnings:
+                        st.warning(f"⚠️ {w}")
+                else:
+                    st.info("✅ All risk indicators satisfy standard underwriting policy guidelines.")
+
             except Exception as e:
-                st.warning(f"FastAPI unreachable ({e}). Falling back to local serialized models.")
+                st.error(f"Underwriting API error: {e}")
+                st.info("💡 Tip: If FastAPI is not running on port 8000, toggle **Provisional Mock Mode** in the sidebar to simulate decisions.")
 
-        if ann_prob is None:
-            X_proc = preprocessor.transform(df_in)
-            ann_prob = float(ann_model.predict(X_proc, verbose=0)[0][0])
-            rf_prob = float(rf_model.predict_proba(X_proc)[0][1])
 
-        st.subheader("Underwriting Decision Results")
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.markdown("### Primary Engine: Artificial Neural Network")
-            st.metric("Predicted Approval Probability", f"{ann_prob * 100:.2f}%", delta=f"{(ann_prob - threshold) * 100:+.2f}% vs Cutoff")
-            st.progress(min(max(ann_prob, 0.0), 1.0))
-            if ann_prob >= threshold:
-                st.success(f"FINAL DECISION: APPROVED (Probability {ann_prob:.2f} >= Cutoff {threshold:.2f})")
-            else:
-                st.error(f"FINAL DECISION: REJECTED (Probability {ann_prob:.2f} < Cutoff {threshold:.2f})")
-
-        with c2:
-            st.markdown("### Benchmark Engine: Random Forest")
-            st.metric("Predicted Approval Probability", f"{rf_prob * 100:.2f}%", delta=f"{(rf_prob - threshold) * 100:+.2f}% vs Cutoff")
-            st.progress(min(max(rf_prob, 0.0), 1.0))
-            if rf_prob >= threshold:
-                st.info(f"BASELINE DECISION: APPROVED (Probability {rf_prob:.2f} >= Cutoff {threshold:.2f})")
-            else:
-                st.warning(f"BASELINE DECISION: REJECTED (Probability {rf_prob:.2f} < Cutoff {threshold:.2f})")
-
-        # Risk & Consensus Summary
-        st.markdown("#### Automated Underwriting Audit Notes")
-        reasons = []
-        if input_data.get("previous_loan_defaults_on_file") == "Yes":
-            reasons.append("• **High Risk Flag:** Applicant has a prior loan default on credit bureau file.")
-        if dti_ratio > 0.35:
-            reasons.append(f"• **Elevated Debt Burden:** Requested loan represents **{dti_ratio*100:.1f}%** of annual income (>35% threshold).")
-        if input_data.get("credit_score", 650) >= 720:
-            reasons.append(f"• **Strong Credit Tier:** Credit score of **{input_data.get('credit_score')}** indicates prime repayment history.")
-        elif input_data.get("credit_score", 650) < 580:
-            reasons.append(f"• **Subprime Credit Tier:** Credit score of **{input_data.get('credit_score')}** falls below standard underwriting floor.")
-
-        consensus = (ann_prob >= threshold) == (rf_prob >= threshold)
-        reasons.append(
-            "• **Model Consensus:** Both the Artificial Neural Network and Random Forest baseline agree on this decision."
-            if consensus else
-            "• **Model Divergence:** ANN and Random Forest disagree near the decision boundary — recommend manual underwriter review."
-        )
-        for r in reasons:
-            st.markdown(r)
-
+# ==============================================================================
+# TAB 2: MODEL PERFORMANCE (Contract v1.0.0 Benchmarks & Diagnostics)
+# ==============================================================================
 with tab2:
-    st.subheader("Unseen Test Set Evaluation Benchmarks (15% Stratified Split)")
-    model_metrics = {
-        k: v for k, v in metrics.items()
-        if isinstance(v, dict) and "accuracy" in v
-    }
-    if model_metrics:
-        metrics_df = pd.DataFrame(model_metrics).T
-        # Dark-mode safe high-contrast styling
-        styled_df = (
-            metrics_df.style
-            .format("{:.4f}")
-            .highlight_max(axis=0, color="#14532d")
-            .set_properties(**{"color": "#f8fafc", "font-weight": "500"})
-        )
-        st.dataframe(styled_df, use_container_width=True)
+    st.subheader("Model Performance & Diagnostic Benchmarks")
+    st.caption("Contract v1.0.0 Evaluation on Unseen 15% Stratified Test Partition.")
 
-    col_hp, col_info = st.columns([1, 2])
-    with col_hp:
-        if "Best_ANN_Hyperparameters" in metrics:
-            st.markdown("**Selected ANN Hyperparameters**")
-            st.json(metrics["Best_ANN_Hyperparameters"])
-    with col_info:
-        st.markdown("**Architecture & Regularization Summary**")
-        st.info(
-            "• **Input & Preprocessing:** Median/Mode Imputation + StandardScaler + OneHotEncoder (fit strictly on X_train).\n"
-            "• **Neural Network:** 2 Hidden Dense Layers (ReLU + He Normal Init) + BatchNormalization + Dropout.\n"
-            "• **Optimization:** Adam Optimizer + Binary Cross-Entropy + Balanced Class Weights + Early Stopping."
-        )
+    try:
+        model_info = client.get_model_info()
 
-    if os.path.exists("reports/evaluation_plots.png"):
-        st.subheader("Diagnostic Visuals: Confusion Matrix, ROC Curve, Loss Convergence & Feature Importance")
-        st.image("reports/evaluation_plots.png", use_container_width=True)
+        # Display System Architecture Overview
+        c_spec1, c_spec2 = st.columns([1, 2])
+        with c_spec1:
+            st.markdown("##### Production Model Specs")
+            st.markdown(f"**Model Identifier:** `{model_info.get('model_name')}`")
+            st.markdown(f"**Version:** `{model_info.get('model_version')}`")
+            st.markdown(f"**Algorithm:** `{model_info.get('model_type')}`")
+            st.markdown(f"**Contract:** `v{model_info.get('contract_version')}`")
+            st.markdown(f"**Default Policy Cutoff:** `{model_info.get('default_threshold', 0.50):.2f}`")
+
+        with c_spec2:
+            st.markdown("##### Features Used by Inference Pipeline")
+            feat_breakdown = model_info.get("features_used", {})
+            st.write(f"• **Categorical Features:** {', '.join(feat_breakdown.get('categorical', []))}")
+            st.write(f"• **Raw Numeric Features:** {', '.join(feat_breakdown.get('numeric_raw', []))}")
+            st.write(f"• **Engineered Features:** {', '.join(feat_breakdown.get('numeric_derived', []))}")
+
+        st.divider()
+
+        # Model Benchmark Comparison Table
+        eval_metrics = model_info.get("evaluation_metrics", {})
+        benchmark_data = {}
+        for k in ["Random_Forest_Baseline", "Artificial_Neural_Network"]:
+            if k in eval_metrics:
+                benchmark_data[k.replace("_", " ")] = eval_metrics[k]
+
+        if benchmark_data:
+            st.markdown("##### Dual-Model Evaluation Metrics (Test Set)")
+            df_metrics = pd.DataFrame(benchmark_data).T
+            styled_metrics = (
+                df_metrics.style
+                .format("{:.4f}")
+                .highlight_max(axis=0, color="#14532d")
+                .set_properties(**{"font-weight": "600", "color": "#f8fafc"})
+            )
+            st.dataframe(styled_metrics, use_container_width=True)
+
+        # ANN Hyperparameters
+        if "Best_ANN_Hyperparameters" in eval_metrics:
+            st.markdown("##### Tuned ANN Hyperparameters")
+            st.json(eval_metrics["Best_ANN_Hyperparameters"])
+
+        # Diagnostic Visualizations
+        plots_path = "reports/evaluation_plots.png"
+        if os.path.exists(plots_path):
+            st.divider()
+            st.markdown("##### Diagnostic Plots: Confusion Matrix, ROC Comparison, Loss Convergence & Feature Importance")
+            st.image(plots_path, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Failed to fetch model info: {e}")
+
+
+# ==============================================================================
+# TAB 3: ASSESSMENT HISTORY (Privacy-Safe SQLite Audit Log)
+# ==============================================================================
+with tab3:
+    st.subheader("Underwriting Assessment History & Audit Trail")
+    st.info(
+        "🛡️ **Privacy by Design:** In strict adherence to financial privacy regulations, "
+        "no applicant PII, gross income, age, gender, or credit scores are persisted in this audit log."
+    )
+
+    h_col1, h_col2 = st.columns([3, 1])
+    with h_col2:
+        refresh_btn = st.button("🔄 Refresh Audit Log", use_container_width=True)
+
+    try:
+        assessments = client.get_assessments(limit=100)
+
+        if assessments:
+            df_hist = pd.DataFrame(assessments)
+            # Reorder for clarity
+            display_cols = [
+                "id", "loan_intent", "predicted_class", "probability_approved",
+                "decision_threshold", "model_name", "model_version", "created_at"
+            ]
+            valid_cols = [c for c in display_cols if c in df_hist.columns]
+            df_hist = df_hist[valid_cols]
+
+            st.dataframe(
+                df_hist,
+                use_container_width=True,
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", format="%d"),
+                    "predicted_class": st.column_config.NumberColumn("Class (1=Appr, 0=Rej)", format="%d"),
+                    "probability_approved": st.column_config.ProgressColumn("Approval Probability", min_value=0.0, max_value=1.0, format="%.2f"),
+                    "decision_threshold": st.column_config.NumberColumn("Cutoff", format="%.2f"),
+                    "created_at": st.column_config.DatetimeColumn("Timestamp (UTC)")
+                }
+            )
+            st.caption(f"Displaying {len(assessments)} recent non-sensitive audit records.")
+        else:
+            st.info("No assessment records found in the audit trail yet. Submit an application in Tab 1!")
+
+        st.divider()
+
+        # Single Record Lookup Tool
+        st.markdown("##### Audit Record Lookup")
+        lookup_col1, lookup_col2 = st.columns([2, 1])
+        with lookup_col1:
+            lookup_id = st.number_input("Enter Assessment ID", min_value=1, step=1, value=1)
+        with lookup_col2:
+            st.write("")
+            st.write("")
+            lookup_btn = st.button("Lookup Record", use_container_width=True)
+
+        if lookup_btn:
+            rec = client.get_assessment_by_id(int(lookup_id))
+            if rec:
+                st.success(f"Audit Record #{lookup_id} Found:")
+                st.json(rec)
+            else:
+                st.warning(f"No assessment record found with ID #{lookup_id}.")
+
+    except Exception as e:
+        st.error(f"Failed to fetch assessment history: {e}")

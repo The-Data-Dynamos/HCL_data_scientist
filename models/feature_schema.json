@@ -68,5 +68,25 @@
     "loan_percent_income": 0.12,
     "cb_person_cred_hist_length": 4.0,
     "credit_score": 640.0
+  },
+  "num_mins": {
+    "person_age": 20.0,
+    "person_income": 8000.0,
+    "person_emp_exp": 0.0,
+    "loan_amnt": 500.0,
+    "loan_int_rate": 5.42,
+    "loan_percent_income": 0.0,
+    "cb_person_cred_hist_length": 2.0,
+    "credit_score": 390.0
+  },
+  "num_maxs": {
+    "person_age": 94.0,
+    "person_income": 2448661.0,
+    "person_emp_exp": 76.0,
+    "loan_amnt": 35000.0,
+    "loan_int_rate": 20.0,
+    "loan_percent_income": 0.66,
+    "cb_person_cred_hist_length": 30.0,
+    "credit_score": 784.0
   }
 }
